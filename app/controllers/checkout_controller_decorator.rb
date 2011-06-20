@@ -125,6 +125,7 @@ CheckoutController.class_eval do
   end
 
   def paypal_finish
+    logger.info "Executing paypal_finish"
     load_order
 
     opts = { :token => params[:token], :payer_id => params[:PayerID] }.merge all_opts(@order, params[:payment_method_id], 'payment' )
@@ -171,6 +172,7 @@ CheckoutController.class_eval do
       end
       
       #Send confirmation email
+      logger.info "Sending order confirmation email in paypal_finish"
       OrderMailer.confirm_email(@order).deliver
 
       flash[:notice] = I18n.t(:order_processed_successfully)
