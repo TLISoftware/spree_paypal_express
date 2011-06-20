@@ -169,6 +169,9 @@ CheckoutController.class_eval do
           state_callback(:after)
         end
       end
+      
+      #Send confirmation email
+      OrderMailer.confirm_email(@order).deliver
 
       flash[:notice] = I18n.t(:order_processed_successfully)
       redirect_to completion_route
