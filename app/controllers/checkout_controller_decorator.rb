@@ -40,7 +40,7 @@ CheckoutController.class_eval do
       #Like All Pop Art, when checking out using Paypal Express, all products are group into one single product called "All Pop Art"
       amount = 0
       opts[:items].each do |i|
-        amount += i[:amount]
+        amount += i[:amount]*i[:quantity]
       end
       amount -= @order.giftcard_discount.to_i*100
       amount -= @order.promo_discount.to_i*100
