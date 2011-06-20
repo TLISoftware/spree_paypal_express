@@ -26,6 +26,7 @@ CheckoutController.class_eval do
   end
 
   def paypal_payment
+    logger.info "Invoking paypal_payment"
     load_order
     opts = all_opts(@order,params[:payment_method_id], 'payment')
     opts.merge!(address_options(@order))
@@ -34,6 +35,20 @@ CheckoutController.class_eval do
     if Spree::Config[:auto_capture]
       @ppx_response = @gateway.setup_purchase(opts[:money], opts)
     else
+      logger.info "Value of opts before is #{opts.inspect}"
+
+      #Like All Pop Art, when checking out using Paypal Express, all products are group into one single product called "All Pop Art"
+      amount = 0
+      opts[:items].each do |i|
+        amount += i[:amount]
+      end
+      amount -= @order.giftcard_discount.to_i*100
+      amount -= @order.promo_discount.to_i*100
+      opts[:items] = [{:name=>"AllPopArt", :description=>"", :sku=>"", :qty=>1, :amount=>amount, :weight=>nil, :height=>nil, :width=>nil, :depth=>nil}]
+      opts[:subtotal] = amount
+      opts[:money] = opts[:subtotal] + opts[:shipping]        
+
+      logger.info "Value of opts after is #{opts.inspect}"
       @ppx_response = @gateway.setup_authorization(opts[:money], opts)
     end
 
@@ -52,7 +67,7 @@ CheckoutController.class_eval do
   def paypal_confirm
     load_order
 
-    opts = { :token => params[:token], :payer_id => params[:PayerID] }.merge all_opts(@order, params[:payment_method_id],  'payment')
+    opts = { :token => params[:token], :payer_id => params[:PayerID] }.merge all_opts(@order, params[:payment_method_id], 'payment')
     gateway = paypal_gateway
 
     @ppx_details = gateway.details_for params[:token]
@@ -64,20 +79,21 @@ CheckoutController.class_eval do
                            :payer_id => @ppx_details.params["payer_id"],
                            :payer_country => @ppx_details.params["payer_country"],
                            :payer_status => @ppx_details.params["payer_status"])
-
-      @order.special_instructions = @ppx_details.params["note"]
+      
+      #Only update special instructions of ppx details note is not nil
+      @order.special_instructions = @ppx_details.params["note"] unless @ppx_details.params["note"].nil?
 
       unless payment_method.preferred_no_shipping
         ship_address = @ppx_details.address
-        order_ship_address = Address.new :firstname  => @ppx_details.params["first_name"],
-                                         :lastname   => @ppx_details.params["last_name"],
-                                         :address1   => ship_address["address1"],
-                                         :address2   => ship_address["address2"],
-                                         :city       => ship_address["city"],
-                                         :country    => Country.find_by_iso(ship_address["country"]),
-                                         :zipcode    => ship_address["zip"],
+        order_ship_address = Address.new :firstname => @ppx_details.params["first_name"],
+                                         :lastname => @ppx_details.params["last_name"],
+                                         :address1 => ship_address["address1"],
+                                         :address2 => ship_address["address2"],
+                                         :city => ship_address["city"],
+                                         :country => Country.find_by_iso(ship_address["country"]),
+                                         :zipcode => ship_address["zip"],
                                          # phone is currently blanked in AM's PPX response lib
-                                         :phone      => @ppx_details.params["phone"] || "(not given)"
+                                         :phone => @ppx_details.params["phone"] || "(not given)"
 
         if (state = State.find_by_abbr(ship_address["state"]))
           order_ship_address.state = state
@@ -221,26 +237,29 @@ CheckoutController.class_eval do
   end
 
   def order_opts(order, payment_method, stage)
+    items_pay_now = 0
     items = order.line_items.map do |item|
       price = (item.price * 100).to_i # convert for gateway
-      { :name        => item.variant.product.name,
+      items_pay_now += (item.variant.price * 100).to_i
+      { :name => item.variant.product.name,
         :description => (item.variant.product.description[0..120] if item.variant.product.description),
-        :sku         => item.variant.sku,
-        :qty         => item.quantity,
-        :amount      => price,
-        :weight      => item.variant.weight,
-        :height      => item.variant.height,
-        :width       => item.variant.width,
-        :depth       => item.variant.weight }
+        :sku => item.variant.sku,
+        :qty => item.quantity,
+        #:amount => (item.variant.price * 100).to_i,
+        :amount => price,
+        :weight => item.variant.weight,
+        :height => item.variant.height,
+        :width => item.variant.width,
+        :depth => item.variant.weight }
       end
 
     credits = order.adjustments.map do |credit|
       if credit.amount < 0.00
-        { :name        => credit.label,
+        { :name => credit.label,
           :description => credit.label,
-          :sku         => credit.id,
-          :qty         => 1,
-          :amount      => (credit.amount*100).to_i }
+          :sku => credit.id,
+          :qty => 1,
+          :amount => (credit.amount*100).to_i }
       end
     end
 
@@ -251,27 +270,32 @@ CheckoutController.class_eval do
       credits_total = credits.map {|i| i[:amount] * i[:qty] }.sum
     end
 
-    opts = { :return_url        => request.protocol + request.host_with_port + "/orders/#{order.number}/checkout/paypal_confirm?payment_method_id=#{payment_method}",
-             :cancel_return_url => "http://"  + request.host_with_port + "/orders/#{order.number}/edit",
-             :order_id          => order.number,
-             :custom            => order.number,
-             :items             => items,
-             :subtotal          => ((order.item_total * 100) + credits_total).to_i,
-             :tax               => ((order.adjustments.map { |a| a.amount if ( a.source_type == 'Order' && a.label == 'Tax') }.compact.sum) * 100 ).to_i,
-             :shipping          => ((order.adjustments.map { |a| a.amount if a.source_type == 'Shipment' }.compact.sum) * 100 ).to_i,
-             :money             => (order.total * 100 ).to_i }
+    opts = { :return_url => request.protocol + request.host_with_port + "/orders/#{order.number}/checkout/paypal_confirm?payment_method_id=#{payment_method}",
+             :cancel_return_url => "http://" + request.host_with_port + "/orders/#{order.number}/edit",
+             :order_id => order.number,
+             :custom => order.number,
+             :items => items,
+             :subtotal => ((order.item_total * 100) + credits_total).to_i,
+             #:subtotal => items_pay_now,
+             :tax => ((order.adjustments.map { |a| a.amount if ( a.source_type == 'Order' && a.label == 'Tax') }.compact.sum) * 100 ).to_i,
+             :shipping => ((order.adjustments.map { |a| a.amount if a.source_type == 'Shipment' }.compact.sum) * 100 ).to_i,
+             #:shipping => 0,
+             :money => (order.total * 100 ).to_i 
+             #:money => items_pay_now
+             }
 
 
     if stage == "checkout"
       opts[:handling] = 0
 
-      opts[:callback_url] = "http://"  + request.host_with_port + "/paypal_express_callbacks/#{order.number}"
+      opts[:callback_url] = "http://" + request.host_with_port + "/paypal_express_callbacks/#{order.number}"
       opts[:callback_timeout] = 3
     elsif stage == "payment"
       #hack to add float rounding difference in as handling fee - prevents PayPal from rejecting orders
       #because the integer totals are different from the float based total. This is temporary and will be
       #removed once Spree's currency values are persisted as integers (normally only 1c)
-      opts[:handling] =  (order.total*100).to_i - opts.slice(:subtotal, :tax, :shipping).values.sum
+      #opts[:handling] = (order.total*100).to_i - opts.slice(:subtotal, :tax, :shipping).values.sum
+      opts[:handling] = 0
     end
 
     opts
