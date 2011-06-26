@@ -1,10 +1,15 @@
+<%
+@title_for_layout = "Confirm order"
+@body_id = "confirm_order"
+%>
+
 <h1><%= t("confirm") %></h1>
-<p>
+<div class="highlight">
   <%= raw t("order_not_yet_placed") %>
-</p>
+</div>
 
 <%= render :partial => 'shared/order_details', :locals => {:order => @order} -%>
-<div class="form-buttons">
-  <%= button_to t('place_order'), paypal_finish_order_checkout_url(@order, {:token => params[:token] , :PayerID => params[:PayerID], :payment_method_id =>
-  params[:payment_method_id] } ), :class => "button primary" %>
+
+<div class="button_alignment">
+  <input type="image" src="/images/confirm_order_btn.png" />
 </div>
