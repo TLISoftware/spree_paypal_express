@@ -44,9 +44,12 @@ CheckoutController.class_eval do
       end
       amount -= @order.giftcard_discount.to_i*100
       amount -= @order.promo_discount.to_i*100
+      amount += opts[:tax]
+      opts[:tax] = 0
       opts[:items] = [{:name=>"AllPopArt", :description=>"", :sku=>"", :qty=>1, :amount=>amount, :weight=>nil, :height=>nil, :width=>nil, :depth=>nil}]
       opts[:subtotal] = amount
-      opts[:money] = opts[:subtotal] + opts[:shipping]        
+      opts[:money] = opts[:subtotal] + opts[:shipping]
+      
 
       logger.info "Value of opts after is #{opts.inspect}"
       @ppx_response = @gateway.setup_authorization(opts[:money], opts)
@@ -90,7 +93,7 @@ CheckoutController.class_eval do
                                          :address1 => ship_address["address1"],
                                          :address2 => ship_address["address2"],
                                          :city => ship_address["city"],
-                                         :country => Country.find_by_iso(ship_address["country"]),
+                                         :country => ship_address["country"],
                                          :zipcode => ship_address["zip"],
                                          # phone is currently blanked in AM's PPX response lib
                                          :phone => @ppx_details.params["phone"] || "(not given)"
